@@ -24,27 +24,60 @@ int libbpf_print_fn(enum libbpf_print_level level, const char *format,
 
   // BUG: https://github.com/aquasecurity/tracee/issues/1676
 
-  char *str = va_arg(exclusivity_check, char *);
-  if (strstr(str, "Exclusivity flag on") != NULL) {
-    va_end(exclusivity_check);
+  // Should not happen but just in case :).
+  if (format == NULL){
     return 0;
   }
-  va_end(exclusivity_check);
 
-  // AttachCgroupLegacy() will first try AttachCgroup() and it
-  // might fail. This is not an error and is the best way of
-  // probing for eBPF cgroup attachment link existence.
+  const char* format_checks = format;
+  while (*format_checks != '\0'){
+    if(*format_checks == '%') {
+      format_checks++;
+      // Check if it's the end of the string.
+      if (*format_checks == '\0') {
+        break;
+      }
 
-  str = va_arg(cgroup_check, char *);
-  if (strstr(str, "cgroup") != NULL) {
-    str = va_arg(cgroup_check, char *);
-    if (strstr(str, "Invalid argument") != NULL) {
-      va_end(cgroup_check);
-      return 0;
+      // % is escaped with %%. Read past it and continue.
+      if (*format_checks == '%') {
+        format_checks++;
+        continue;
+      }
+
+      // check for formatters!! could be a scaped %
+      // Warning: we always call `va_arg` even if the formatter
+      // is not a string
+      //  - WARNING: This means that these pointers are only valid if the
+      //  argument is a Cstring (if below).
+      //  - NOCOMMIT: Ensure this is safe (for example perhaps the arguments
+      //  use a word each, in which case it would be safe. Otherwise we
+      //  would need to handle them independently).
+      char *str = va_arg(exclusivity_check, char *);
+      char *str2 = va_arg(cgroup_check, char *);
+
+      if (*format_checks == 's') {
+        if (strstr(str, "Exclusivity flag on") != NULL) {
+          va_end(exclusivity_check);
+          return 0;
+        }
+        va_end(exclusivity_check);
+
+        // AttachCgroupLegacy() will first try AttachCgroup() and it
+        // might fail. This is not an error and is the best way of
+        // probing for eBPF cgroup attachment link existence.
+        if (strstr(str2, "cgroup") != NULL) {
+          // TODO: handle this case
+          // str3 = va_arg(cgroup_check, char *);
+          // if (strstr(str3, "Invalid argument") != NULL) {
+          //  va_end(cgroup_check);
+          //  return 0;
+          //}
+        }
+        va_end(cgroup_check);
+      }
     }
+    format_checks++;
   }
-  va_end(cgroup_check);
-
   return vfprintf(stderr, format, args);
 }
 
